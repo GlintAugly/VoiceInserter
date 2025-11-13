@@ -22,9 +22,9 @@ https://www.python.org/downloads/ から、無料でインストール可能で�
 
 # インストール方法
 
-0. voicevox_coreのダウンローダー(download-windows-x64.exe)を、https://github.com/VOICEVOX/voicevox_core/releasesからダウンロードしてくる。
-0. init.batと同じフォルダにVoiceInserter.pyとvoicevox_coreのダウンローダーを配置する。
-1. init.batを**管理者権限で**実行する。
+* Windows版
+0. https://github.com/GlintAugly/VoiceInserter/releases からVoiceInserter_install.zipをダウンロード、展開してReleaseフォルダを開く
+1. init.batを**管理者として**実行する
 2. ダウンロード途中、Voicevoxの利用規約が出てくるので、内容をよく読み、同意出来る場合は同意する。(同意しない場合でも、既存音声ファイルの配置機能は利用可能です)
 
 # 利用方法
@@ -37,3 +37,28 @@ https://www.python.org/downloads/ から、無料でインストール可能で�
 # Lisence
 
 This project is licensed under the MIT License, see the LICENSE.txt file for details
+
+## Release同梱物のLisenceについて
+
+### download-windows-x64.exe
+
+Copyright (c) 2021 Hiroshiba Kazuyuki
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
