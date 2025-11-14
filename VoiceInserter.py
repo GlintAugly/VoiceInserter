@@ -1,3 +1,8 @@
+'''
+Python Script
+VoiceInserter
+DaVinci Resolve向けのスクリプトで、Voicevoxなどの音声・画像・字幕を挿入するGUIを作成する。
+'''
 import tkinter as tk
 from tkinter import filedialog, messagebox, colorchooser
 import tkinter.ttk as ttk
@@ -10,6 +15,9 @@ import wave
 from io import BytesIO
 from typing import Literal, Callable, Any, Final, cast
 from uuid import UUID
+import urllib.request
+import urllib.error
+import subprocess
 import pprint
 
 TRACK_TYPE_VIDEO_STRING: Final = "video"
@@ -22,6 +30,8 @@ TRACK_TYPE_SUBTITLE: Final = 3
 CLIP_NAME_PREFIX: Final = "VoiceInserter"
 DATA_FILE: Final = "VoiceInserterData"
 FONT_PATH: Final = "C:\\Windows\\Fonts"
+scriptVersion: str = "1.0.0"
+IGNORE_VERSION_FILE: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/ignoreVersion.txt"
 
 try:
     sys.path.append(f"{os.environ['RESOLVE_SCRIPT_API']}/Modules/voicevox_core/Lib/site-packages")
@@ -30,6 +40,7 @@ try:
     import winsound
     import tempfile
     VOICEVOX_PATH: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/../../../Fusion/Scripts/Utility/VoiceInserter/voicevox_core"
+    VOICEVOX_TARGET_VERSION: Final = "0.16.2"
     voicevoxAvailable: bool = True
 except:
     voicevoxAvailable = False
@@ -1190,7 +1201,7 @@ class VoicevoxEngine:
 class PackingData:
     class ElementData:
         def __init__(self, fileName: str) -> None:
-            self.__filePath: str = f"{os.environ['P_RESOLVE_SCRIPT_API']}/{DATA_FILE}/{fileName}"
+            self.__filePath: str = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/{fileName}"
             self._params: dict[str, Any] = {}
         
         def _InitNewItem(self, paramKey: str, defaultValue: Any) -> None:
@@ -2675,14 +2686,160 @@ def AddTab(notebook: ttk.Notebook, templateName: str, project, fonts: FontList) 
     displayData: PackingData = PackingData(templateName, project, fonts)
     displayData.Disp(tab)
 
+def GetGithubReleasesLatestName(owner: str, repo: str) -> tuple[str, str]:
+    try:
+        try:
+            with urllib.request.urlopen(f"https://api.github.com/repos/{owner}/{repo}/releases/latest", timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                retName: str = data.get('name', '')
+                retTagName: str = data.get('tag_name', '')
+                if not re.match(r"^\d+\.\d+\.\d$", retName):
+                    retName = ''
+        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, KeyError, TimeoutError):
+            retName = ''
+            retTagName = ''
+    except:
+        retName = ''
+        retTagName = ''
+    return retName, retTagName
+
+def CompareVersion(version: str, target: str) -> bool:
+    if version == '' or target == '':
+        return False
+    majorV, minorV, patchV = re.findall(r"\d+", version)
+    majorT, minorT, patchT = re.findall(r"\d+", target)
+    if int(majorV) > int(majorT):
+        return True
+    elif int(majorV) < int(majorT):
+        return False
+    elif int(minorV) > int(minorT):
+        return True
+    elif int(minorV) < int(minorT):
+        return False
+    elif int(patchV) > int(patchT):
+        return True
+    return False
+
+def VersionCheck() -> bool:
+    global scriptVersion
+    if os.path.exists(IGNORE_VERSION_FILE):
+        with open(IGNORE_VERSION_FILE, "r") as f:
+            ignoreVersion = f.readline()
+            if CompareVersion(ignoreVersion, scriptVersion):
+                scriptVersion = ignoreVersion
+    LATEST: Final = GetGithubReleasesLatestName("GlintAugly", "VoiceInserter")
+    ret: bool = True
+    TEMPFILE: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/temp.bat"
+    if os.path.exists(TEMPFILE):
+        os.remove(TEMPFILE)
+    if voicevoxAvailable:
+        if CompareVersion(VOICEVOX_TARGET_VERSION, voicevox.__version__):
+            askYesNo: bool = messagebox.askyesno("", "VOICEVOX_COREのバージョンが要求バージョンと異なります。アップデートしますか？")
+            if askYesNo:
+                with open(TEMPFILE, "w", encoding="shift_jis") as f:
+                    f.writelines(['@echo off\n',
+                                'setlocal enabledelayedexpansion\n',
+                                f'set PID={os.getpid()}\n',
+                                'timeout /t 2 /nobreak\n',
+                                ':wait_loop\n',
+                                'tasklist /fi "PID eq %PID%" | find /i "%PID%" >nul\n',
+                                'if %ERRORLEVEL% == 1 (\n'
+                                '    echo プロセスID %PID% は終了しました\n',
+                                '    goto end\n',
+                                ')\n',
+                                'echo プロセスID %PID% はまだ実行中です...\n',
+                                'timeout /t 5 /nobreak\n',
+                                'goto wait_loop\n',
+                                ':end\n',
+                                f'pip install https://github.com/VOICEVOX/voicevox_core/releases/download/{VOICEVOX_TARGET_VERSION}/voicevox_core-{VOICEVOX_TARGET_VERSION}-cp310-abi3-win_amd64.whl --prefix="%RESOLVE_SCRIPT_API%"\\Modules\\voicevox_core\n',
+                                'echo MsgBox "アップデートが完了しました。VoiceInserterを再度起動してください。",vbInformation,"info" > %TEMP%\msgbox.vbs & %TEMP%\msgbox.vbs\n',
+                                'del /Q %TEMP%\msgbox.vbs\n',
+                                'exit 0'])
+                try:
+                    subprocess.run(f'start "" "{TEMPFILE}"', shell=True)
+                except subprocess.CalledProcessError as e:
+                    messagebox.showerror("エラー", "アップデートに失敗しました。")
+                    print(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}")
+                    print(f"Output: {e.stdout}")
+                    print(f"Error Output: {e.stderr}")
+                return False
+
+    if CompareVersion(LATEST[0], scriptVersion):
+        updateroot: tk.Tk = tk.Tk()
+        updateroot.title("アップデート確認")
+        updateLabel: tk.Label = tk.Label(updateroot, text=f"VoiceInserterのバージョン更新を検知しました。\n{LATEST[0]}にアップデートしますか？")
+        updateLabel.pack()
+        updateButtonFrame: tk.Frame = tk.Frame(updateroot)
+        updateYesButton: ttk.Button = ttk.Button(updateButtonFrame, text="はい")
+        def OnPressYes() -> None:
+            with open(TEMPFILE, "w", encoding="shift_jis") as f:
+                f.writelines(['@echo off\n',
+                            'setlocal enabledelayedexpansion\n',
+                            f'set PID={os.getpid()}\n',
+                            'timeout /t 2 /nobreak\n',
+                            ':wait_loop\n',
+                            'tasklist /fi "PID eq %PID%" | find /i "%PID%" >nul\n',
+                            'if %ERRORLEVEL% == 1 (\n',
+                            '    echo プロセスID %PID% は終了しました\n',
+                            '    goto end\n',
+                            ')\n',
+                            'echo プロセスID %PID% はまだ実行中です...\n',
+                            'timeout /t 5 /nobreak\n',
+                            'goto wait_loop\n',
+                            ':end\n',
+                            f'curl -L -o "{os.path.dirname(sys.argv[0])}\\temp.txt" https://github.com/GlintAugly/VoiceInserter/releases/download/{LATEST[1]}/VoiceInserter.py\n',
+                            f'findstr /R "^Python Script$" "{os.path.dirname(sys.argv[0])}\\temp.txt"\n'
+                            'if %ERRORLEVEL% == 0 (\n',
+                            f'    move /y "{os.path.dirname(sys.argv[0])}\\temp.txt" "{sys.argv[0]}"\n',
+                            ') else (\n',
+                            '    echo MsgBox "アップデートファイルのダウンロードに失敗しました。",vbCritical,"error" > %TEMP%\msgbox.vbs & %TEMP%\msgbox.vbs\n'
+                            f'    del /Q "{os.path.dirname(sys.argv[0])}\\temp.txt"\n',
+                            '    del /Q %TEMP%\msgbox.vbs\n',
+                            '    exit 1\n',
+                            ')\n',
+                            'echo MsgBox "アップデートが完了しました。VoiceInserterを再度起動してください。",vbInformation,"info" > %TEMP%\msgbox.vbs & %TEMP%\msgbox.vbs\n',
+                            'del /Q %TEMP%\msgbox.vbs\n',
+                            'exit 0'])
+            try:
+                subprocess.run(f'start "" "{TEMPFILE}"', shell=True)
+            except subprocess.CalledProcessError as e:
+                messagebox.showerror("エラー", "アップデートに失敗しました。")
+                print(f"Error: Command '{e.cmd}' returned non-zero exit status {e.returncode}")
+                print(f"Output: {e.stdout}")
+                print(f"Error Output: {e.stderr}")
+
+            nonlocal ret
+            ret = False
+            updateroot.destroy()
+        updateYesButton.config(command=OnPressYes)
+        updateYesButton.pack(side=tk.LEFT)
+        updateNoButton: ttk.Button = ttk.Button(updateButtonFrame, text="いいえ")
+        def OnPressNo() -> None:
+            updateroot.destroy()
+        updateNoButton.config(command=OnPressNo)
+        updateNoButton.pack(side=tk.LEFT)
+        updateIgnoreButton: ttk.Button = ttk.Button(updateButtonFrame, text="このバージョンを無視する")
+        def OnPressIgnore() -> None:
+            with open(IGNORE_VERSION_FILE, "w") as f:
+                f.write(LATEST[0])
+            updateroot.destroy()
+        updateIgnoreButton.config(command=OnPressIgnore)
+        updateIgnoreButton.pack(side=tk.LEFT)
+        updateButtonFrame.pack()
+        updateroot.mainloop()
+    return ret
+
 if __name__ == "__main__":
+    # バージョンチェック
+    if not VersionCheck():
+        sys.exit()
     # projectの取得
     resolve = app.GetResolve() # type: ignore
     projectManager = resolve.GetProjectManager()
     project = projectManager.GetCurrentProject()
     installedFonts: FontList = FontList(FontList.FetchFonts())
     
-    templateFile: str = f"{os.environ['P_RESOLVE_SCRIPT_API']}/{DATA_FILE}/templates.dat"
+    templateFile: str = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/templates.dat"
     os.makedirs(os.path.dirname(os.path.abspath(templateFile)), exist_ok=True)
     if not os.path.exists(templateFile):
         # 初期設定
