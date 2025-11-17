@@ -6,7 +6,7 @@ GUIで画像や字幕のプロパティを設定することで、共通した�
 # 前提条件
 
 * DaVinci Resolveのインストール
-https://www.blackmagicdesign.com/jp/products/davinciresolve/　から、無料でインストール可能です。
+https://www.blackmagicdesign.com/jp/products/davinciresolve/ から、無料でインストール可能です。
 
 * Pythonのインストール
 https://www.python.org/downloads/ から、無料でインストール可能です。
