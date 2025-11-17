@@ -6,7 +6,7 @@ GUIで画像や字幕のプロパティを設定することで、共通した�
 # 前提条件
 
 * DaVinci Resolveのインストール
-https://www.blackmagicdesign.com/jp/products/davinciresolve/　から、無料でインストール可能です。
+https://www.blackmagicdesign.com/jp/products/davinciresolve/ から、無料でインストール可能です。
 
 * Pythonのインストール
 https://www.python.org/downloads/ から、無料でインストール可能です。
@@ -38,9 +38,9 @@ https://www.python.org/downloads/ から、無料でインストール可能で�
 
 This project is licensed under the MIT License, see the LICENSE.txt file for details
 
-## Release同梱物のLisenceについて
+## 利用ライブラリのLisenceについて
 
-### download-windows-x64.exe
+### voicevox_core
 
 Copyright (c) 2021 Hiroshiba Kazuyuki
 

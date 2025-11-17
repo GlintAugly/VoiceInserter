@@ -38,8 +38,9 @@ REM Voicevoxのインストール
 IF NOT EXIST "download-windows-x64.exe" (
     exit
 )
-copy download-windows-x64.exe %RESOLVE_SCRIPT_DIR%\VoiceInserter\download.exe
 cd %RESOLVE_SCRIPT_DIR%\VoiceInserter
+set VOICEVOX_VERSION=0.16.2
+curl -L -o "download.exe" https://github.com/VOICEVOX/voicevox_core/releases/download/%VOICEVOX_VERSION%/download-windows-x64.exe
 download.exe --exclude c-api --devices directml
 IF %ERRORLEVEL% NEQ 0 (
     echo VOICEVOXコアのダウンロードに失敗しました
@@ -47,5 +48,4 @@ IF %ERRORLEVEL% NEQ 0 (
     pause
     exit /b 1
 )
-set VOICEVOX_VERSION=0.16.1
 pip install https://github.com/VOICEVOX/voicevox_core/releases/download/%VOICEVOX_VERSION%/voicevox_core-%VOICEVOX_VERSION%-cp310-abi3-win_amd64.whl --prefix="%RESOLVE_SCRIPT_API%"\Modules\voicevox_core

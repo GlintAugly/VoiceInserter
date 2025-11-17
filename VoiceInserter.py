@@ -30,7 +30,7 @@ TRACK_TYPE_SUBTITLE: Final = 3
 CLIP_NAME_PREFIX: Final = "VoiceInserter"
 DATA_FILE: Final = "VoiceInserterData"
 FONT_PATH: Final = "C:\\Windows\\Fonts"
-scriptVersion: str = "1.0.0"
+scriptVersion: str = "1.0.1"
 IGNORE_VERSION_FILE: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/ignoreVersion.txt"
 
 try:
@@ -2751,7 +2751,10 @@ def VersionCheck() -> bool:
                                 'timeout /t 5 /nobreak\n',
                                 'goto wait_loop\n',
                                 ':end\n',
-                                f'pip install https://github.com/VOICEVOX/voicevox_core/releases/download/{VOICEVOX_TARGET_VERSION}/voicevox_core-{VOICEVOX_TARGET_VERSION}-cp310-abi3-win_amd64.whl --prefix="%RESOLVE_SCRIPT_API%"\\Modules\\voicevox_core\n',
+                                f'cd "{VOICEVOX_PATH}\\..\\"\n',
+                                f'curl -L -o "download.exe" https://github.com/VOICEVOX/voicevox_core/releases/download/{VOICEVOX_TARGET_VERSION}/download-windows-x64.exe\n',
+                                'download.exe --exclude c-api --devices directml\n',
+                                f'pip install https://github.com/VOICEVOX/voicevox_core/releases/download/{VOICEVOX_TARGET_VERSION}/voicevox_core-{VOICEVOX_TARGET_VERSION}-cp310-abi3-win_amd64.whl --prefix="{os.environ["RESOLVE_SCRIPT_API"]}\\Modules\\voicevox_core"\n',
                                 'echo MsgBox "アップデートが完了しました。VoiceInserterを再度起動してください。",vbInformation,"info" > %TEMP%\msgbox.vbs & %TEMP%\msgbox.vbs\n',
                                 'del /Q %TEMP%\msgbox.vbs\n',
                                 'exit 0'])
