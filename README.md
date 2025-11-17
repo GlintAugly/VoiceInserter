@@ -38,9 +38,9 @@ https://www.python.org/downloads/ から、無料でインストール可能で�
 
 This project is licensed under the MIT License, see the LICENSE.txt file for details
 
-## Release同梱物のLisenceについて
+## 利用ライブラリのLisenceについて
 
-### download-windows-x64.exe
+### voicevox_core
 
 Copyright (c) 2021 Hiroshiba Kazuyuki
 
