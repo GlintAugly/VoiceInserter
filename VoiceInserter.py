@@ -27,10 +27,12 @@ TRACK_TYPES: Final = [TRACK_TYPE_VIDEO_STRING, TRACK_TYPE_AUDIO_STRING, TRACK_TY
 TRACK_TYPE_VIDEO: Final = 1
 TRACK_TYPE_AUDIO: Final = 2
 TRACK_TYPE_SUBTITLE: Final = 3
+MOUSE_OPEN_KEY: Final = "mouseOpen"
+MOUTH_OPEN_VOLUME_BORDER: Final = 0.1
 CLIP_NAME_PREFIX: Final = "VoiceInserter"
 DATA_FILE: Final = "VoiceInserterData"
 FONT_PATH: Final = "C:\\Windows\\Fonts"
-scriptVersion: str = "1.0.1"
+scriptVersion: str = "1.0.2"
 IGNORE_VERSION_FILE: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/ignoreVersion.txt"
 
 try:
@@ -48,7 +50,6 @@ except:
 def GetWavDuration(wavedata: wave.Wave_read) -> float:
     '''
     waveデータの再生に掛かる秒数を取得する。
-    事前にMakeWavを呼ぶ必要あり。
 
     Parameters:
     wavedata: wave.Wave_read
@@ -62,6 +63,45 @@ def GetWavDuration(wavedata: wave.Wave_read) -> float:
     framerate: int = wavedata.getframerate()
     framecount: int = wavedata.getnframes()
     return framecount / framerate
+
+def GetWavVolumeLevels(wavedata: wave.Wave_read, fps: float) -> list[float]:
+    '''
+    1フレームごとのwaveデータの音量を取得する。
+
+    Parameters:
+    wavedata: wave.Wave_read
+        waveのデータ
+    fps: float
+        フレームレート
+
+    Returns: list[float]
+        音量のリスト(dBに変換前のデータ)
+    '''
+    if not wavedata:
+        return []
+    framerate: int = wavedata.getframerate()
+    framecount: int = wavedata.getnframes()
+    framesPerSample: int = int(framerate / fps)
+    if framesPerSample <= 0:
+        framesPerSample = 1
+    decibels: list[float] = []
+    for startFrame in range(0, framecount, framesPerSample):
+        endFrame = min(startFrame + framesPerSample, framecount)
+        wavedata.setpos(startFrame)
+        frames: bytes = wavedata.readframes(endFrame - startFrame)
+        sampleSize: int = wavedata.getsampwidth()
+        if len(frames) == 0:
+            decibels.append(-float('inf'))
+            continue
+        # PCMとして処理
+        sampleCount: int = len(frames) // sampleSize
+        sumSquares: float = 0.0
+        for i in range(sampleCount):
+            sample: int = int.from_bytes(frames[i*sampleSize:i*sampleSize+sampleSize], byteorder='little', signed=True)
+            sumSquares += sample * sample
+        # dBにすると計算量が増えるので、ここでは二乗平均の値を返す
+        decibels.append(sumSquares / sampleCount)
+    return decibels
 
 def GetColorCode(r: float, g:float, b:float) -> str:
     '''
@@ -416,6 +456,39 @@ class ResolveUtil:
             if clip.GetStart(False) <= currentFrame <= clip.GetEnd(False):
                 return clip
         return None
+    
+    @staticmethod
+    def MakeFusionImageLoaderTool(file: str, fusionComp, posx: int=0, posy: int=0):
+        '''
+        FusionでLoaderImageを作成する関数を返す
+
+        Parameters:
+        file: str
+            画像ファイルのパス
+        fusionComp: FusonComp
+            画像を設定するFusionComp
+        
+        Returns: loaderTool
+            設定したLoaderTool
+        '''
+        fusionComp.Lock()
+        loaderTool = fusionComp.AddTool("Loader", posx, posy)
+        loaderTool.Clip = file
+        fusionComp.Unlock()
+        # 表示画像の固定
+        # ファイル名末尾が数字だと、自動的に1つのアニメーションにされてしまうので、そのアニメーションの1コマを指定してそこで固定させる
+        trim = 0
+        m = re.match(r"(.*)(\d+)\.(\w+)", file)
+        if m:
+            trim = int(m.group(2))
+            for i in range(0, trim):
+                if len(glob.glob(f"{m.group(1)}*{i}.{m.group(3)}")) == 0:
+                    trim -= 1
+                    break
+        loaderTool.ClipTimeStart = trim
+        loaderTool.ClipTimeEnd = trim
+        loaderTool.Loop = 1.0
+        return loaderTool
 
 class TkinterUtil:
     class SubWindow(tk.Toplevel):
@@ -1260,9 +1333,14 @@ class PackingData:
             with open(self.__filePath, 'w') as f:
                 json.dump(self._params, f, indent=4)
         
-
     class ImageData(ElementData):
         def __init__(self, fileName: str) -> None:
+            '''
+            初期化.
+            Parameters:
+            fileName: str
+                保存先のパス
+            '''
             super().__init__(fileName)
             self._Load()
             self._InitNewItem("imageDict", {"None": None})
@@ -1273,12 +1351,14 @@ class PackingData:
             self._InitNewItem("zoom", 1.0)
             self._InitNewItem("voiceOnly", False)
             self._InitNewItem("openedImageDir", "")
+            self._InitNewItem("LipSyncImageDict", {})
             self.imageWidth: int = 200
             self.imageHeight: int = 400
             self.canvas: tk.Canvas | None = None
             self.canvasImage: int | None = None
             self.image: tk.PhotoImage | None = None
             self.combo: ttk.Combobox | None = None
+            self.lipSyncImageOptionFrame: tk.Frame | None = None
 
         def __getitem__(self, key) -> Any | None:
             # dictionaryのセーブ回避アクセスを禁止.
@@ -1300,16 +1380,104 @@ class PackingData:
             self._Save()
         
         def DelImage(self, key: str) -> None:
+            changed: bool = False
             if key in self._params["imageDict"]:
                 del self._params["imageDict"][key]
+                changed = True
+            if key in self._params["LipSyncImageDict"]:
+                del self._params["LipSyncImageDict"][key]
+                changed = True
+            if changed:
                 self._Save()
+
+        def GetLipSyncImage(self, baseImageKey: str, lipSyncImageKey: str) -> str:
+            if baseImageKey not in self._params["LipSyncImageDict"]:
+                return ""
+            return self._params["LipSyncImageDict"][baseImageKey].get(lipSyncImageKey, {"Image": ""})["Image"]
+
+        def AddLipSyncImage(self, baseImageKey: str, lipSyncImageKey: str, path: str) -> None:
+            if baseImageKey not in self._params["LipSyncImageDict"]:
+                self._params["LipSyncImageDict"][baseImageKey] = {}
+            if lipSyncImageKey not in self._params["LipSyncImageDict"][baseImageKey]:
+                self._params["LipSyncImageDict"][baseImageKey][lipSyncImageKey] = {"Image": "", "offset": (0.5, 0.5)}
+            self._params["LipSyncImageDict"][baseImageKey][lipSyncImageKey]["Image"] = path
+            self._Save()
+
+        def DelLipSyncImage(self, baseImageKey: str, lipSyncImageKey: str) -> None:
+            if baseImageKey in self._params["LipSyncImageDict"] and lipSyncImageKey in self._params["LipSyncImageDict"][baseImageKey]:
+                del self._params["LipSyncImageDict"][baseImageKey][lipSyncImageKey]
+                self._Save()
+        
+        def GetLipSyncImageOffset(self, baseImageKey: str, lipSyncImageKey: str) -> tuple[float | int, float | int]:
+            if baseImageKey not in self._params["LipSyncImageDict"]:
+                return (0, 0)
+            if lipSyncImageKey not in self._params["LipSyncImageDict"][baseImageKey]:
+                return (0, 0)
+            return self._params["LipSyncImageDict"][baseImageKey][lipSyncImageKey]["offset"]
+
+        def SetLipSyncImageOffset(self, baseImageKey: str, lipSyncImageKey: str, offsetX: float | int, offsetY: float | int) -> None:
+            if baseImageKey not in self._params["LipSyncImageDict"]:
+                return
+            if lipSyncImageKey not in self._params["LipSyncImageDict"][baseImageKey]:
+                return
+            self._params["LipSyncImageDict"][baseImageKey][lipSyncImageKey]["offset"] = (offsetX, offsetY)
+            self._Save()
 
         def SetPos(self, x: float | int, y: float | int) -> None:
             self._params["x"] = x
             self._params["y"] = y
             self._Save()
         
-        def ApplyToClip(self, clip) -> None:
+        def ApplyImageToClip(self, clip, lipSyncFrames: list[tuple[str, int]] | None) -> None:
+            '''
+            クリップに画像を反映する。
+
+            Parameters:
+            clip: timelineClip
+                画像を反映させるクリップ
+            lipSyncFrames: list[tuple[str, int]] | None
+                口パクフレーム情報のリスト。(口パク画像キー, フレーム番号)。Noneなら口パクはしない.
+            '''
+            
+            if clip.GetFusionCompCount() == 0:
+                clip.AddFusionComp()
+            fusionComp = clip.GetFusionCompByIndex(1)
+            # 画像の設定
+            mainLoaderTool = ResolveUtil.MakeFusionImageLoaderTool(self.GetImage(cast(str, self["selectImage"])), fusionComp)
+            # 表示
+            mergeTool = fusionComp.AddTool("MultiMerge", 1, 0)
+            mergeTool.Background = mainLoaderTool.Output
+            lipSyncImagePath: str = self.GetLipSyncImage(cast(str, self["selectImage"]), MOUSE_OPEN_KEY)
+            if lipSyncFrames is not None and lipSyncImagePath != "":
+                openMouthLoaderTool = ResolveUtil.MakeFusionImageLoaderTool(lipSyncImagePath, fusionComp, 0, 1)
+                # 口パク位置調整
+                transformTool = fusionComp.AddTool("Transform", 1, 1)
+                offsetX, offsetY = self.GetLipSyncImageOffset(cast(str, self["selectImage"]), MOUSE_OPEN_KEY)
+                transformTool.Center = [offsetX, offsetY]
+                transformTool.Input = openMouthLoaderTool.Output
+                mergeTool.Layer1.Foreground = transformTool.Output
+                # 口パクフレーム設定
+                keyFrames = {}
+                lastSet: float = -1.0
+                if len(lipSyncFrames) > 0:
+                    for key, i in lipSyncFrames:
+                        if lastSet >= 0:
+                            keyFrames[i - 1] = {1:lastSet, "LH": {1:0.0, 2:0.0}, "RH": {1:0.0, 2:0.0}}
+                        if key == MOUSE_OPEN_KEY:
+                            nowSet: float = 1.0
+                        else:
+                            nowSet = 0.0
+                        keyFrames[i] = {1:nowSet, "LH": {1:0.0, 2:0.0}, "RH": {1:0.0, 2:0.0}}
+                        lastSet = nowSet
+                bezierSpline = fusionComp.BezierSpline()
+                bezierSpline.SetKeyFrames(keyFrames)
+                mergeTool.Layer1.Size = bezierSpline
+            mediaOut = fusionComp.FindToolByID("MediaOut")
+            if not mediaOut:
+                mediaOut = fusionComp.AddTool("MediaOut", 2, 0)
+            mediaOut.Input = mergeTool.Output
+
+        def ApplyPropertyToClip(self, clip) -> None:
             '''
             クリップに設定を反映する。
 
@@ -1356,6 +1524,32 @@ class PackingData:
             addImageEntry.pack(side=tk.LEFT, fill=tk.X, expand=True)
             addImageButton: ttk.Button = ttk.Button(addImageFrame, text="表情追加", command=self._AddImage(addImageEntry))
             addImageButton.pack()
+            # 口パク表情追加
+            lipSyncFrame: tk.Frame = tk.Frame(frame)
+            lipSyncFrame.pack(fill=tk.X, padx=5, pady=5)
+            self.addLipSyncImageButton: ttk.Button = ttk.Button(lipSyncFrame, text="口パク表情追加", command=self._ChoiceLipSyncImageFile())
+            self.addLipSyncImageButton.pack()
+            self.lipSyncImageOptionFrame = tk.Frame(lipSyncFrame)
+            self.lipSyncImageOptionFrame.pack(fill=tk.X, padx=5, pady=5)
+            offsetXLabel: ttk.Label = ttk.Label(self.lipSyncImageOptionFrame, text="口パクX:")
+            offsetXLabel.pack(side=tk.LEFT)
+            def SetOffset() -> bool:
+                if self.combo is None:
+                    return True
+                self.SetLipSyncImageOffset(cast(str, self["selectImage"]), MOUSE_OPEN_KEY, 
+                                           float(self.offsetXEntry.get()), float(self.offsetYEntry.get()))
+                return True
+            self.offsetXEntry: ttk.Entry = ttk.Entry(self.lipSyncImageOptionFrame, width=5, validate="focusout", validatecommand=SetOffset)
+            self.offsetXEntry.pack(side=tk.LEFT, padx=5)
+            offsetYLabel: ttk.Label = ttk.Label(self.lipSyncImageOptionFrame, text="口パクY:")
+            offsetYLabel.pack(side=tk.LEFT)
+            self.offsetYEntry: ttk.Entry = ttk.Entry(self.lipSyncImageOptionFrame, width=5, validate="focusout", validatecommand=SetOffset)
+            self.offsetYEntry.pack(side=tk.LEFT, padx=5)
+            lipSyncImageDeleteButton: ttk.Button = ttk.Button(self.lipSyncImageOptionFrame, text="口パク表情削除", command=self._PushedDeleteLipSyncImage(MOUSE_OPEN_KEY))
+            lipSyncImageDeleteButton.pack(side=tk.LEFT, padx=5)
+            self._UpdateLipSyncWidgets()
+
+            # 表情削除
             deleteImageButton: ttk.Button = ttk.Button(frame, text="選択中の表情削除", command=self._DeleteImage)
             deleteImageButton.pack()
             # プロパティ設定
@@ -1391,6 +1585,36 @@ class PackingData:
             copyButton: ttk.Button = ttk.Button(frame, text="タイムラインから取得", command=self._CopyImageSetting(project, trackName, xEntry, yEntry, flipXBox, zoomEntry))
             copyButton.pack()
 
+        def _UpdateLipSyncWidgets(self) -> None:
+            if self.lipSyncImageOptionFrame is None:
+                return
+            if self.GetLipSyncImage(cast(str, self["selectImage"]), MOUSE_OPEN_KEY) == "":
+                self.addLipSyncImageButton["text"] = "口パク表情追加"
+                self.lipSyncImageOptionFrame.pack_forget()
+                return
+            if self.lipSyncImageOptionFrame.winfo_ismapped() == 0:
+                self.lipSyncImageOptionFrame.pack(fill=tk.X, padx=5, pady=5)
+            self.addLipSyncImageButton["text"] = f"口パク表情変更({os.path.basename(self.GetLipSyncImage(cast(str, self['selectImage']), MOUSE_OPEN_KEY))})"
+            self.offsetXEntry.insert(0, str(self.GetLipSyncImageOffset(cast(str, self["selectImage"]), MOUSE_OPEN_KEY)[0]))
+            self.offsetYEntry.insert(0, str(self.GetLipSyncImageOffset(cast(str, self["selectImage"]), MOUSE_OPEN_KEY)[1]))
+
+        def _ChoiceLipSyncImageFile(self) -> Callable[[], None]:
+            def inner() -> None:
+                filetypes = [("画像ファイル", "*.png;*.jpg;*.jpeg;*.gif;*.bmp"), ("すべてのファイル", "*.*")]
+                initialDir: str = self["openedImageDir"] if self["openedImageDir"] else ""
+                filePath: str = filedialog.askopenfilename(title="口パク表情画像を選択", initialdir=initialDir, filetypes=filetypes)
+                if filePath:
+                    self.AddLipSyncImage(cast(str, self["selectImage"]), MOUSE_OPEN_KEY, filePath)
+                    self["openedImageDir"] = os.path.dirname(filePath)
+                    self._UpdateLipSyncWidgets()
+            return inner
+
+        def _PushedDeleteLipSyncImage(self, lipSyncImageKey: str) -> Callable[[], None]:
+            def inner() -> None:
+                self.DelLipSyncImage(cast(str, self["selectImage"]), lipSyncImageKey)
+                self._UpdateLipSyncWidgets()                
+            return inner
+
         def _ChangeImage(self, imagePath: str) -> None:
             '''
             表示されている画像を変更する
@@ -1417,6 +1641,7 @@ class PackingData:
                 if self.canvasImage is not None:
                     self.canvas.delete(self.canvasImage)
                     self.canvasImage = None
+            self._UpdateLipSyncWidgets()
             
         def _DeleteImage(self) -> None:
             '''
@@ -1437,6 +1662,7 @@ class PackingData:
                         if self.canvasImage is not None and self.canvas is not None:
                             self.canvas.delete(self.canvasImage)
                             self.canvasImage = None
+                self._UpdateLipSyncWidgets()
 
         def _AddImage(self, imageNameWidget: tk.Entry) -> Callable[[], None]:
             '''
@@ -1855,7 +2081,6 @@ class PackingData:
                     y: int | float = targetClip.GetProperty("Tilt")
                     fusionComp = targetClip.GetFusionCompByIndex(1)
                     textPlus = fusionComp.FindToolByID("TextPlus")
-                    print(textPlus.GetInput("LayoutWidth")) 
                     if textPlus is None:
                         messagebox.showerror("ERROR", "TextPlusツールが見つかりませんでした。")
                         return
@@ -2274,6 +2499,10 @@ class PackingData:
         if not self.project:
             messagebox.showerror("Error", "有効なプロジェクトがありません。")
             return
+        oldTransformTool = clip.GetFusionCompByIndex(1).FindToolByID("Transform")
+        if oldTransformTool is not None:
+            messagebox.showerror("Error", "口パクのあるクリップは再挿入出来ません。")
+            return
         currentTimeline = ResolveUtil.GetOrCreateCurrentTimeline(self.project)
 
         def exec(trackIndex: int) -> None:
@@ -2300,7 +2529,7 @@ class PackingData:
                 newImage.AddFusionComp()
             fusionComp = newImage.GetFusionCompByIndex(1)
             fusionComp.Lock()
-            loaderTool = fusionComp.AddTool("Loader", 0, 0)
+            loaderTool = fusionComp.AddTool("Loader", 1, 0)
             loaderTool.Clip = oldfile
             loaderTool.ClipTimeStart = oldtrim
             loaderTool.ClipTimeEnd = oldtrim
@@ -2309,7 +2538,7 @@ class PackingData:
             # 表示
             mediaOut = fusionComp.FindToolByID("MediaOut")
             if not mediaOut:
-                mediaOut = fusionComp.AddTool("MediaOut", 1000, 0)
+                mediaOut = fusionComp.AddTool("MediaOut", 2, 0)
             # プロパティ反映
             newImage.SetProperty("Pan", oldx)
             newImage.SetProperty("Tilt", oldy)
@@ -2320,7 +2549,7 @@ class PackingData:
 
         self.SelectTrack(currentTimeline, TRACK_TYPE_VIDEO_STRING, self.imageTrackName, exec)
 
-    def InsertImage(self, endtimecode: str) -> None:
+    def InsertImage(self, endtimecode: str, tillVoiceEnd: bool, lipSyncFrames: list[tuple[str, int]] = [("base", 0)]) -> None:
         '''
         現在のタイムラインに画像を挿入する
         タイムラインが存在しない場合は新規に作成する
@@ -2329,6 +2558,10 @@ class PackingData:
         Parameters:
         endtimecode: str
             画像クリップの終了タイムコード
+        tillVoiceEnd: bool
+            音声クリップの終了まで画像を表示するかどうか
+        lipSyncFrames: list of tuple(str, int)
+            口パクフレーム情報のリスト
         '''
         file: str = self.imageData.GetImage(cast(str, self.imageData["selectImage"]))        
         if not file:
@@ -2352,34 +2585,23 @@ class PackingData:
                 messagebox.showerror("Error", "画像の挿入に失敗しました。")
                 return 
             newImage.SetName(f"{self.name}Image_{self.imageData['selectImage']}")
-            # 画像の設定
-            if newImage.GetFusionCompCount() == 0:
-                newImage.AddFusionComp()
-            fusionComp = newImage.GetFusionCompByIndex(1)
-            fusionComp.Lock()
-            loaderTool = fusionComp.AddTool("Loader", 0, 0)
-            loaderTool.Clip = file
-            fusionComp.Unlock()
-            # 表示画像の固定
-            # ファイル名末尾が数字だと、自動的に1つのアニメーションにされてしまうので、そのアニメーションの1コマを指定してそこで固定させる
-            trim = 0
-            m = re.match(r"(.*)(\d+)\.(\w+)", file)
-            if m:
-                trim = int(m.group(2))
-                for i in range(0, trim):
-                    if len(glob.glob(f"{m.group(1)}*{i}.{m.group(3)}")) == 0:
-                        trim -= 1
-                        break
-            loaderTool.ClipTimeStart = trim
-            loaderTool.ClipTimeEnd = trim
-            loaderTool.Loop = 1.0
-            # 表示
-            mediaOut = fusionComp.FindToolByID("MediaOut")
-            if not mediaOut:
-                mediaOut = fusionComp.AddTool("MediaOut", 1000, 0)
+            # 画像反映
+            self.imageData.ApplyImageToClip(newImage, lipSyncFrames)
             # プロパティ反映
-            self.imageData.ApplyToClip(newImage)
-            mediaOut.Input = loaderTool.Output
+            self.imageData.ApplyPropertyToClip(newImage)
+            
+            # tillVoiceEndが無効な場合、ベースのイメージを最終フレームまで挿入する.
+            if not tillVoiceEnd:
+                imageEndTimecode: str = ResolveUtil.GetTimecodeFromFrame(currentTimeline.GetEndFrame(), currentTimeline.GetSetting("timelineFrameRate"))
+                newImage = self.InsertFusionClip(currentTimeline, imageEndTimecode, trackIndex, TRACK_TYPE_VIDEO)
+                if newImage is None:
+                    messagebox.showerror("Error", "画像の挿入に失敗しました。")
+                    return 
+                newImage.SetName(f"{self.name}Image_{self.imageData['selectImage']}_Wait")
+                # 画像反映
+                self.imageData.ApplyImageToClip(newImage, None)
+                # プロパティ反映
+                self.imageData.ApplyPropertyToClip(newImage)
 
         self.SelectTrack(currentTimeline, TRACK_TYPE_VIDEO_STRING, self.imageTrackName, exec)
 
@@ -2471,7 +2693,7 @@ class PackingData:
                 text = "".join(f.readlines())
         self.InsertRaw(voiceFile, text)
 
-    def InsertRaw(self, wavFile, text: str) -> None:
+    def InsertRaw(self, wavFile: str, text: str) -> None:
         '''
         テキスト・画像・音声を現在のタイムラインに挿入する
 
@@ -2486,11 +2708,23 @@ class PackingData:
         self.InsertVoice(wavFile)
         endTimecode: str = currentTimeline.GetCurrentTimecode()
         currentTimeline.SetCurrentTimecode(currentTimecode)
-        # デフォルトでは最終フレームまで画像を表示する
-        imageEndTimecode: str = ResolveUtil.GetTimecodeFromFrame(currentTimeline.GetEndFrame(), currentTimeline.GetSetting("timelineFrameRate"))
-        if self.imageData["voiceOnly"]:
-            imageEndTimecode = endTimecode
-        self.InsertImage(imageEndTimecode)
+        # 口パク用フレームリストの作成
+        lipSyncFrames: list[tuple[str, int]] = [("base", 0)]
+        if self.imageData.GetLipSyncImage(cast(str, self.imageData["selectImage"]), MOUSE_OPEN_KEY) != "":
+            wavData: wave.Wave_read = wave.open(wavFile, 'rb')
+            volumeLevels: list[float] = GetWavVolumeLevels(wavData, currentTimeline.GetSetting("timelineFrameRate"))
+            maxVolumeLevel: float = max(volumeLevels)
+            isOpened: bool = False
+            for i in range(len(volumeLevels)):
+                volumeLevelRatio: float = volumeLevels[i] / maxVolumeLevel if maxVolumeLevel > 0 else 0.0
+                if isOpened and volumeLevelRatio < MOUTH_OPEN_VOLUME_BORDER:
+                    lipSyncFrames.append(("base", i))
+                    isOpened = not isOpened
+                if not isOpened and volumeLevelRatio >= MOUTH_OPEN_VOLUME_BORDER:
+                    lipSyncFrames.append((MOUSE_OPEN_KEY, i))
+                    isOpened = not isOpened
+            wavData.close()
+        self.InsertImage(endTimecode, cast(bool, self.imageData["voiceOnly"]), lipSyncFrames)
         if self.textEnableValue.get() and text and len(text) > 0:
             currentTimeline.SetCurrentTimecode(currentTimecode)
             self.InsertText(text, endTimecode)
