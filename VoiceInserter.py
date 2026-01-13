@@ -32,7 +32,7 @@ MOUTH_OPEN_VOLUME_BORDER: Final = 0.1
 CLIP_NAME_PREFIX: Final = "VoiceInserter"
 DATA_FILE: Final = "VoiceInserterData"
 FONT_PATH: Final = "C:\\Windows\\Fonts"
-scriptVersion: str = "1.0.2"
+scriptVersion: str = "1.1.0"
 IGNORE_VERSION_FILE: Final = f"{os.environ['RESOLVE_SCRIPT_API']}/{DATA_FILE}/ignoreVersion.txt"
 
 try:
@@ -1780,6 +1780,7 @@ class PackingData:
             self._InitNewItem("size", 0.08)
             self._InitNewItem("color", [1.0, 1.0, 1.0])
             self._InitNewItem("boxWidth", 0.8)
+            self._InitNewItem("anchor", 0)
             self._InitNewItem("innerBorderEnabled", False)
             self._InitNewItem("innerBorderThickness", 0.2)
             self._InitNewItem("innerBorderColor", [1.0, 0.0, 0.0])
@@ -1845,6 +1846,7 @@ class PackingData:
             textPlus.Green1 = self._params["color"][1]
             textPlus.Blue1 = self._params["color"][2]
             textPlus.LayoutType = 1
+            textPlus.HorizontalLeftCenterRight = self._params["anchor"]
             textPlus.LayoutWidth = self._params["boxWidth"]
             # 内枠設定
             textPlus.Enabled2 = 1 if self._params["innerBorderEnabled"] else 0
@@ -1927,6 +1929,17 @@ class PackingData:
                 self["style"] = styleCombo.get()
             styleCombo.bind("<<ComboboxSelected>>", StyleChaged) 
             styleCombo.pack(side=tk.LEFT, padx=5)
+            anchorFrame: ttk.LabelFrame = ttk.LabelFrame(frame, text="文字揃え")
+            anchorFrame.pack(fill=tk.X, padx=5, pady=5)
+            anchorValue: tk.IntVar = tk.IntVar(value=self["anchor"])
+            def SetValue() -> None:
+                self["anchor"] = anchorValue.get()
+            anchorLeftRadio: tk.Radiobutton = tk.Radiobutton(anchorFrame, text="左", variable=anchorValue, value=-1, command=SetValue)
+            anchorLeftRadio.pack(side=tk.LEFT, padx=5)
+            anchorCenterRadio: tk.Radiobutton = tk.Radiobutton(anchorFrame, text="中央", variable=anchorValue, value=0, command=SetValue)
+            anchorCenterRadio.pack(side=tk.LEFT, padx=5)
+            anchorRightRadio: tk.Radiobutton = tk.Radiobutton(anchorFrame, text="右", variable=anchorValue, value=1, command=SetValue)
+            anchorRightRadio.pack(side=tk.LEFT, padx=5)
             # 文字情報
             characterFrame: tk.Frame = tk.Frame(frame)
             characterFrame.pack()
@@ -2029,12 +2042,16 @@ class PackingData:
             shadowColorButton.config(command=self.ColorChooser(shadowColorButton, "shadowColor"))
             shadowColorButton.pack(side=tk.LEFT, padx=5)
 
-            textCopyButton: ttk.Button = ttk.Button(frame, text="タイムラインから取得", command=self._CopyTextSetting(project, trackName, textPosXEntry, textPosYEntry, fontCombo, styleCombo, sizeEntry, boxWidthEntry, colorButton, 
+            textCopyButton: ttk.Button = ttk.Button(frame, text="タイムラインから取得", command=self._CopyTextSetting(project, trackName, textPosXEntry, textPosYEntry, fontCombo, styleCombo, 
+                                                                                                            anchorLeftRadio, anchorCenterRadio, anchorRightRadio,
+                                                                                                            sizeEntry, boxWidthEntry, colorButton, 
                                                                                                             innerBorderEnableCheckBox,  innerBorderSizeEntry, innerBorderColorButton, outerBorderEnableCheckBox,  outerBorderSizeEntry, outerBorderColorButton,
                                                                                                             shadowEnableCheckBox, shadowOffsetXEntry, shadowOffsetYEntry, shadowSizeEntry, shadowColorButton))
             textCopyButton.pack()
 
-        def _CopyTextSetting(self, project, trackName: str, xWidget: tk.Entry, yWidget: tk.Entry, fontCombo: ttk.Combobox, styleCombo: ttk.Combobox, sizeEntry: tk.Entry, boxWidthEntry: tk.Entry, colorButton: tk.Button, 
+        def _CopyTextSetting(self, project, trackName: str, xWidget: tk.Entry, yWidget: tk.Entry, fontCombo: ttk.Combobox, styleCombo: ttk.Combobox, 
+                             leftAnchorRadio: tk.Radiobutton, centerAnchorRadio: tk.Radiobutton, rightAnchorRadio: tk.Radiobutton,
+                             sizeEntry: tk.Entry, boxWidthEntry: tk.Entry, colorButton: tk.Button, 
                              innerBorderEnabledWidget: tk.Checkbutton, innerBorderThicknessEntry: tk.Entry, innerBorderColorButton: tk.Button, outerBorderEnabledWidget: tk.Checkbutton, outerBorderThicknessEntry: tk.Entry, outerBorderColorButton: tk.Button, 
                              shadowEnabledWidget: tk.Checkbutton, shadowOffsetXEntry: tk.Entry, shadowOffsetYEntry: tk.Entry, shadowSizeEntry: tk.Entry, shadowColorButton: tk.Button) -> Callable[[], None]:
             '''
@@ -2053,6 +2070,12 @@ class PackingData:
                 フォント名の入力ウィジェット
             styleCombo: ttk.Combobox
                 フォントスタイルの入力ウィジェット
+            leftAnchorRadio: tk.Radiobutton
+                左揃えラジオボタンウィジェット
+            centerAnchorRadio: tk.Radiobutton
+                中央揃えラジオボタンウィジェット
+            rightAnchorRadio: tk.Radiobutton
+                右揃えラジオボタンウィジェット
             sizeEntry: tkinter.Entry
                 フォントサイズの入力ウィジェット
             colorButton: tkinter.Button
@@ -2096,6 +2119,7 @@ class PackingData:
                         if styleObj == style:
                             dispStyle = styleName
                             break
+                    anchor: float = textPlus.GetInput("HorizontalLeftCenterRight")
                     size: int | float = textPlus.GetInput("Size")
                     color: list[float] = [textPlus.GetInput("Red1"), textPlus.GetInput("Green1"), textPlus.GetInput("Blue1")]
                     if textPlus.GetInput("LayoutType") == 1:
@@ -2127,6 +2151,13 @@ class PackingData:
                     self["style"] = dispStyle
                     sizeEntry.delete(0, tk.END)
                     sizeEntry.insert(0, str(size))
+                    self["anchor"] = int(anchor)
+                    if anchor == -1:
+                        leftAnchorRadio.select()
+                    elif anchor == 0:
+                        centerAnchorRadio.select()
+                    else:
+                        rightAnchorRadio.select()
                     self["size"] = size
                     boxWidthEntry.delete(0, tk.END)
                     boxWidthEntry.insert(0, str(boxWidth))
