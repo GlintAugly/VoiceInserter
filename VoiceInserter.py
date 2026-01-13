@@ -1748,7 +1748,7 @@ class PackingData:
             def inner() -> None:
                 targetClip = ResolveUtil.GetCurrentTimelineClip(project, TRACK_TYPE_VIDEO_STRING, trackName)
                 if not targetClip:
-                    messagebox.showerror("ERROR", f"現在表示されている画像が{trackName}に存在しません")
+                    messagebox.showerror("Error", f"現在表示されている画像が{trackName}に存在しません")
                     return
                 ret: bool =  messagebox.askyesno('', '現在表示されているイメージから設定をコピーしますか？')
                 if ret:
@@ -1833,7 +1833,7 @@ class PackingData:
             fusionComp = clip.GetFusionCompByIndex(1)
             textPlus = fusionComp.FindToolByID("TextPlus")
             if textPlus is None:
-                messagebox.showerror("ERROR", "TextPlusツールが見つかりませんでした。")
+                messagebox.showerror("Error", "TextPlusツールが見つかりませんでした。")
                 return
             # フォント設定
             insertFont: str = self.fonts.fonts.get(self._params["font"], "")
@@ -2073,7 +2073,7 @@ class PackingData:
             def inner() -> None:
                 targetClip = ResolveUtil.GetCurrentTimelineClip(project, TRACK_TYPE_VIDEO_STRING, trackName)
                 if not targetClip:
-                    messagebox.showerror("ERROR", f"現在表示されている字幕が{trackName}に存在しません")
+                    messagebox.showerror("Error", f"現在表示されている字幕が{trackName}に存在しません")
                     return
                 ret: bool =  messagebox.askyesno('', '現在表示されている字幕から設定をコピーしますか？')
                 if ret:
@@ -2082,7 +2082,7 @@ class PackingData:
                     fusionComp = targetClip.GetFusionCompByIndex(1)
                     textPlus = fusionComp.FindToolByID("TextPlus")
                     if textPlus is None:
-                        messagebox.showerror("ERROR", "TextPlusツールが見つかりませんでした。")
+                        messagebox.showerror("Error", "TextPlusツールが見つかりませんでした。")
                         return
                     dispFont: str = ""
                     dispStyle: str = ""
@@ -2267,7 +2267,7 @@ class PackingData:
         if voicevoxAvailable:
             self.voicevox: VoicevoxEngine = VoicevoxEngine()
             if not self.voicevox.IsInitSucceeded():
-                messagebox.showerror("ERROR", "voicevoxの初期化に失敗しました")
+                messagebox.showerror("Error", "voicevoxの初期化に失敗しました")
                 voicevoxAvailable = False
             self.voicevoxData = self.VoicevoxData(f"{name}_voicevox.json", self.voicevox)
         pass
@@ -2832,7 +2832,7 @@ def AddTemplateInFile(name, filePath: str) -> None:
         for templateName in f:
             templateName = templateName.replace("\n", "")
             if templateName == name:
-                messagebox.showerror("ERROR", "その名前はすでに存在します。")
+                messagebox.showerror("Error", "その名前はすでに存在します。")
                 return
         f.seek(0, 2)
         f.write(name + "\n")
