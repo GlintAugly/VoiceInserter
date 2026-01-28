@@ -34,6 +34,10 @@ https://www.python.org/downloads/ から、無料でインストール可能で�
 2. キャラ名を入力し「作成」を押す
 3. ウィンドウが出てくるので、各種パラメーターを変更して「挿入」ボタンをクリック
 
+パラメーターの意味など、詳しい説明は以下を参照。
+
+https://www.glnt8ly.net/playgames/index.php/2026/01/28/davinci-resolve/
+
 # Lisence
 
 This project is licensed under the MIT License, see the LICENSE.txt file for details
